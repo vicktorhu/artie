@@ -45,7 +45,7 @@ class App:
     def __init__(self):
         self.config = {}
         self.systems_mapping = {}
-        self.roms_path = ""
+        self.roms_paths = []
         self.systems_logo_path = ""
         self.content = {}
         self.box_enabled = True
@@ -69,7 +69,12 @@ class App:
             time.sleep(self.LOG_WAIT)
             sys.exit()
 
-        self.roms_path = self.config.get("roms")
+        roms_config = self.config.get("roms")
+        if isinstance(roms_config, str):
+            self.roms_paths = [roms_config]
+        else:
+            self.roms_paths = roms_config
+
         self.systems_logo_path = self.config.get("logos")
         self.colors = self.config.get("colors")
         self.dev_id = self.config.get("screenscraper").get("devid")
@@ -124,30 +129,44 @@ class App:
             self.load_roms()
 
     def get_available_systems(self) -> List[str]:
-        available_systems = [
-            d.lower()
-            for d in os.listdir(self.roms_path)
-            if Path(self.roms_path, d).is_dir()
-        ]
-        return sorted(
-            [system for system in available_systems if system in self.systems_mapping]
+        available_systems = []
+
+        for roms_path in self.roms_paths:
+            if not Path(roms_path).exists():
+                continue
+
+            systems = [
+                d.lower()
+                for d in os.listdir(roms_path)
+                if Path(roms_path, d).is_dir()
+            ]
+            available_systems.extend(systems)
+
+        available_systems = sorted(
+            set(system for system in available_systems if system in self.systems_mapping)
         )
+
+        return available_systems
 
     def get_roms(self, system: str) -> list[Rom]:
         roms = []
-        system_path = Path(self.roms_path) / system
 
-        for root, dirs, files in os.walk(system_path):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for roms_path in self.roms_paths:
+            system_path = Path(roms_path) / system
+            if not system_path.exists():
+                continue
 
-            for file in files:
-                file_path = Path(root) / file
-                if file.startswith("."):
-                    continue
-                if file_path.is_file() and self.is_valid_rom(file):
-                    name = file_path.stem
-                    rom = Rom(filename=file, name=name, path=file_path)
-                    roms.append(rom)
+            for root, dirs, files in os.walk(system_path):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+
+                for file in files:
+                    file_path = Path(root) / file
+                    if file.startswith("."):
+                        continue
+                    if file_path.is_file() and self.is_valid_rom(file):
+                        name = file_path.stem
+                        rom = Rom(filename=file, name=name, path=file_path)
+                        roms.append(rom)
         return roms
 
     def delete_files_in_directory(self, filenames, directory_path):
@@ -192,8 +211,15 @@ class App:
         self.gui.draw_rectangle_r([10, 40, 630, 440], 15)
         self.gui.draw_text((320, 20), f"Artie Scraper v{VERSION}", anchor="mm")
 
-        if not Path(self.roms_path).exists() or not any(Path(self.roms_path).iterdir()):
-            self.gui.draw_log("Wrong Roms path, check config.json")
+        valid_paths = False
+        for roms_path in self.roms_paths:
+            path = Path(roms_path)
+            if path.exists() and any(path.iterdir()):
+                valid_paths = True
+                break
+
+        if not valid_paths:
+            self.gui.draw_log("No valid ROM paths found, check config.json")
             self.gui.draw_paint()
             time.sleep(self.LOG_WAIT)
             sys.exit()
@@ -243,8 +269,9 @@ class App:
         if len(available_systems) >= 1:
             self.draw_available_systems(available_systems)
         else:
+            paths_str = ", ".join(self.roms_paths)
             self.gui.draw_text(
-                (320, 240), f"No Emulators found in {self.roms_path}", anchor="mm"
+                (320, 240), f"No Emulators found in: {paths_str}", anchor="mm"
             )
 
         self.button_circle((300, 450), "M", "Exit")
